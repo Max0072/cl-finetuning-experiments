@@ -1,6 +1,6 @@
 """Validate the scalable MC Fisher against the exact deterministic (expected) one.
 
-Justifies using MC (which scales to large output spaces / LLMs) by showing it
+Justifies using MC (which scales to large output spaces) by showing it
 matches the exact deterministic Fisher on the certified MNIST anchor. Reports the
 Pearson/Spearman correlation of the per-weight Fisher, and of the resulting
 Laplace sigmas.
@@ -36,8 +36,10 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--batches", type=int, default=100)
+    ap.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto",
+                    help="force a device; 'cpu' is bit-reproducible (MPS+vmap is not)")
     args = ap.parse_args()
-    device = pick_device()
+    device = pick_device() if args.device == "auto" else torch.device(args.device)
 
     model, _, (anchor_train, _) = get_anchor(args.n, args.seed, device=device, verbose=True)
     n_data = len(anchor_train.dataset)

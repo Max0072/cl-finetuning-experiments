@@ -16,6 +16,8 @@ import argparse
 import json
 from pathlib import Path
 
+import torch
+
 from cl_experiments.config import BLR_SIG_BASE, SETTING
 from cl_experiments.harness import run_experiment
 from cl_experiments.repro import get_logger, pick_device, run_manifest, setup_logging
@@ -36,9 +38,11 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--n-stream", type=int, default=SETTING.n_stream)
+    ap.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto",
+                    help="force a device; 'cpu' is bit-reproducible (MPS+vmap is not)")
     args = ap.parse_args()
     setup_logging(OUT.parent / "design_ablations.log")
-    device = pick_device()
+    device = pick_device() if args.device == "auto" else torch.device(args.device)
     out = json.loads(OUT.read_text()) if OUT.exists() else {}
 
     log.info("design ablations (n=%d, lr=%.0f); one knob off canonical BLR", args.n, LR)
@@ -55,7 +59,7 @@ def main() -> None:
         log.info("%-20s %7.3f %9.3f %8.3f %8.3f",
                  name, v["acc"], v["anchor_final"], v["stream_final"], v["forgetting"])
     run_manifest(OUT.parent / "design_ablations.manifest.json",
-                 config={"n": args.n, "lr": LR, "variants": list(VARIANTS)})
+                 config={"n": args.n, "lr": LR, "variants": list(VARIANTS)}, device=device)
 
 
 if __name__ == "__main__":

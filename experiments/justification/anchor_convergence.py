@@ -13,7 +13,7 @@ report their agreement (Pearson/Spearman). This confirms (a) the collapse story
 holds for the production MC estimator too, not only the reference, and (b) MC
 stays faithful to exact across the WHOLE convergence range -- including the
 saturated regime where MC almost always draws the argmax label -- so the choice
-of MC (for LLM-scale output spaces) is not a source of pathology here.
+of MC (for large output spaces) is not a source of pathology here.
 
 Run:  uv run python -m experiments.justification.anchor_convergence
 """
@@ -62,9 +62,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto",
+                    help="force a device; 'cpu' is bit-reproducible (MPS+vmap is not)")
     args = ap.parse_args()
     setup_logging(OUT.parent / "anchor_convergence.log")
-    device = pick_device()
+    device = pick_device() if args.device == "auto" else torch.device(args.device)
     perms = anchor_perms(args.n, args.seed)
     train_loader, test_loaders = anchor_loaders(perms, batch_size=SETTING.batch_size, seed=args.seed)
     n_data = len(train_loader.dataset)
@@ -108,7 +110,8 @@ def main() -> None:
         log.info("%6d %10.4f %10.2e %8.4f | %9.1f %7.1f%% | %9.1f %7.1f%% | %7.4f %7.4f",
                  ep, loss, gnorm, min_acc, exp_nf, exp_pct, mc_nf, mc_pct, pear, spear)
     run_manifest(OUT.parent / "anchor_convergence.manifest.json",
-                 config={"n": args.n, "seed": args.seed, "epochs": EPOCHS, "sigma_prior": SIGMA_PRIOR})
+                 config={"n": args.n, "seed": args.seed, "epochs": EPOCHS,
+                         "sigma_prior": SIGMA_PRIOR}, device=device)
 
 
 if __name__ == "__main__":

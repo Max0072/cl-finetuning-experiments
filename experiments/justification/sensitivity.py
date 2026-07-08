@@ -20,6 +20,8 @@ import argparse
 import json
 from pathlib import Path
 
+import torch
+
 from cl_experiments.config import BLR_SIG_BASE, SETTING
 from cl_experiments.harness import run_experiment
 from cl_experiments.repro import get_logger, pick_device, run_manifest, setup_logging
@@ -38,9 +40,11 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--n-stream", type=int, default=SETTING.n_stream)
+    ap.add_argument("--device", choices=["auto", "cpu", "mps", "cuda"], default="auto",
+                    help="force a device; 'cpu' is bit-reproducible (MPS+vmap is not)")
     args = ap.parse_args()
     setup_logging(OUT.parent / "sensitivity.log")
-    device = pick_device()
+    device = pick_device() if args.device == "auto" else torch.device(args.device)
     out = json.loads(OUT.read_text()) if OUT.exists() else {}
 
     def run(key, overrides):
@@ -71,7 +75,7 @@ def main() -> None:
 
     run_manifest(OUT.parent / "sensitivity.manifest.json",
                  config={"n": args.n, "lr": LR, "sigma_priors": SIGMA_PRIORS, "rhos": RHOS,
-                         "n_samples": N_SAMPLES, "fisher_batches": FISHER_BATCHES})
+                         "n_samples": N_SAMPLES, "fisher_batches": FISHER_BATCHES}, device=device)
 
 
 if __name__ == "__main__":
