@@ -29,6 +29,7 @@ justification/  WHY THE CHOICES ARE SOUND (defends against "cherry-picked")
   fisher_density.py        importance densifies to ~uniform as the stream fills capacity
   capacity_scaling.py      wider models need more data to compress sigma (scale bridge)
   curvature_persistence.py steps-per-task proxy (INCONCLUSIVE, kept honestly)
+  zone_convergence.py      importance-structure alignment vs training + model width
 ```
 
 Read order to validate the study: **setup → benchmark → figures** gives the claims;

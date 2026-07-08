@@ -61,6 +61,7 @@ saturating net.
 | Fast σ-saturation is a **small-capacity artifact**: bigger models need far more data to compress σ | `justification/capacity_scaling.py` | after 10 tasks, % important: width 256 → **84%**, 512 → **40%**, 1024 → **10%**; importance stays structured longer for wider nets |
 | So at large scale σ stays loose over a long **data** horizon → curvature protection stays relevant longer | *extrapolation* | **Precondition confirmed** on MNIST; the *sufficiency* ("curvature matters long at scale") needs a real large-model run — out of scope here |
 | A cheap steps-per-task proxy shows curvature-init persistence | `justification/curvature_persistence.py` | **Inconclusive (kept honestly).** Fewer steps ⇒ little movement ⇒ little forgetting for the init to save; the gap stays ~0.002 with no trend. The data-vs-capacity test (§5 row 1) is the right one. |
+| Width lets a model share a solution across the stream **and** keep the anchor distinct | `justification/zone_convergence.py` | Fisher-importance alignment rises & levels off for both widths. Decomposed at the final θ: stream-vs-stream 256=0.78 / 1024=**0.81** (wider aligns the stream *more*, refuting "spreading→low"); anchor-vs-stream 256=0.68 / 1024=**0.47** (wider keeps the anchor separate — the small net saturates and is forced to merge it). Curvature-level reason a bigger model protects old knowledge. Single seed; probes importance-structure alignment, **not** "a shared low-loss θ exists" (that is retention). |
 
 ---
 
