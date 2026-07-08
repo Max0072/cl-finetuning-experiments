@@ -67,4 +67,11 @@ TUNED_METHODS: dict[str, tuple[str, dict]] = {
 # replay buffer). beta is swept by the caller; other knobs are the tuned operating point.
 BLR_SIG_BASE: dict = {"sigma_mode": "laplace", "fisher_mode": "true", "fisher_batches": 30,
                       "sigma_prior": 0.05, "n_samples": 1.6e4, "rho": 0.06}
+# Constant-sigma ablation base: IDENTICAL BLR dynamics to BLR_SIG_BASE (same sigma_prior,
+# n_samples, rho) -- only the sigma INITIALISATION differs (flat sigma_const instead of the
+# curvature-derived Laplace sigma). Sweeping beta over this vs BLR_SIG_BASE isolates the
+# value of curvature-informed sigma init (the contribution). sigma_const = sigma_prior is
+# the most-plastic flat init, i.e. generous to the ablation.
+CONST_SIG_BASE: dict = {"sigma_mode": "const", "sigma_const": 0.05,
+                        "sigma_prior": 0.05, "n_samples": 1.6e4, "rho": 0.06}
 REPLAY_BASE: dict = {"buffer_size": 6598, "replay_bs": 100}
