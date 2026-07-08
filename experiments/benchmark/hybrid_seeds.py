@@ -90,7 +90,8 @@ def main() -> None:
                  label, a[0], a[1], r[0], r[1], p[0], p[1], f[0], f[1])
 
     run_manifest(OUT.parent / "hybrid_seeds.manifest.json",
-                 config={"n": args.n, "seeds": args.seeds, "configs": CONFIGS}, elapsed_s=t.elapsed)
+                 config={"n": args.n, "seeds": args.seeds, "configs": CONFIGS}, elapsed_s=t.elapsed,
+                 device=device)
     _plot(out, args.n, args.seeds)
 
 

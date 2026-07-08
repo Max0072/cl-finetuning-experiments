@@ -84,7 +84,7 @@ def main() -> None:
     run_manifest(RESULTS / "final_grid.manifest.json",
                  config={"n_list": args.n_list, "seeds": args.seeds,
                          "n_stream": args.n_stream, "tuned": TUNED_METHODS},
-                 elapsed_s=t.elapsed)
+                 elapsed_s=t.elapsed, device=device)
 
 
 if __name__ == "__main__":

@@ -95,7 +95,8 @@ def main() -> None:
             log.info("%-18s %3d  %.3f+-%.3f  %.3f+-%.3f  %.3f+-%.3f  %.3f+-%.3f",
                      label, ns, a[0], a[1], r[0], r[1], p[0], p[1], f[0], f[1])
     run_manifest(OUT.parent / "stream_length.manifest.json",
-                 config={"n": args.n, "seeds": args.seeds, "N": args.N}, elapsed_s=t.elapsed)
+                 config={"n": args.n, "seeds": args.seeds, "N": args.N}, elapsed_s=t.elapsed,
+                 device=device)
     _plot(out, args.N, args.n)
 
 

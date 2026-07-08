@@ -109,13 +109,19 @@ def run_manifest(
     seed: int | None = None,
     extra: dict | None = None,
     elapsed_s: float | None = None,
+    device: torch.device | str | None = None,
 ) -> dict:
-    """Write a traceability manifest (git, time, env, config, seed) as JSON."""
+    """Write a traceability manifest (git, time, env, config, seed) as JSON.
+
+    ``device`` records the device the run ACTUALLY used; pass it explicitly (e.g. the
+    ``--device`` the script resolved). Falls back to the auto-detected device only when
+    not given -- do not rely on the fallback for reproducibility-critical runs.
+    """
     manifest = {
         "timestamp_utc": datetime.now(UTC).isoformat(),
         "git_commit": git_commit(),
         "git_dirty": git_dirty(),
-        "device": device_str(),
+        "device": str(device) if device is not None else device_str(),
         "torch_version": torch.__version__,
         "python": sys.version.split()[0],
         "seed": seed,
