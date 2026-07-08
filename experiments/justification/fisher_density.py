@@ -9,12 +9,15 @@ only; over MANY tasks importance may spread until "everything is important" (cap
 We advance the model through the stream (BLR, matched β) and after each task measure:
   * per-task %important   -- fraction of weights THIS task alone marks important (σ<0.9·prior)
   * cumulative %important -- same fraction for the RUNNING Fisher sum over all tasks so far
-  * corr(F_task, F_anchor) -- are important sets SHARED across tasks, or disjoint?
 
 Prediction if the capacity story holds: per-task stays ~flat (~few %), but cumulative RISES
-toward saturation while cross-task overlap is low -- each permuted task uses a DIFFERENT
-sparse set, their union fills the net, so protecting the ACCUMULATED set (online curvature)
-is what matters; a static anchor Fisher is blind to the sets later tasks will occupy.
+toward saturation -- each permuted task uses a different sparse set, their union fills the net,
+so protecting the ACCUMULATED set (online curvature) is what matters; a static anchor Fisher is
+blind to the sets later tasks will occupy.
+
+(Whether the tasks' importance structures ALIGN across the stream -- the pairwise Fisher
+correlation and its dynamics -- is a separate, cleaner probe in `zone_convergence.py`, which
+measures every task at the SAME point θ instead of along the trajectory.)
 
 Run:  uv run python -m experiments.justification.fisher_density --n 3 --N 12 --device cpu
 """
@@ -63,10 +66,6 @@ def _frac_important(importance: torch.Tensor) -> float:
     return (sig < 0.9 * PRIOR).float().mean().item()
 
 
-def _corr(a: torch.Tensor, b: torch.Tensor) -> float:
-    return torch.corrcoef(torch.stack([a, b]))[0, 1].item()
-
-
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=3)
@@ -89,10 +88,9 @@ def main() -> None:
         # task 0 = the anchor itself
         f_anchor = diagonal_fisher(model, anchor_train, mode="true", max_batches=FISHER_BATCHES,
                                    device=device, generator=gen)
-        fa = _flat(f_anchor)
-        imp_cum = len(anchor_train.dataset) * fa.clone()
-        rows = [{"task": 0, "per_task_pct": _frac_important(len(anchor_train.dataset) * fa) * 100,
-                 "cumulative_pct": _frac_important(imp_cum) * 100, "corr_with_anchor": 1.0}]
+        imp_cum = len(anchor_train.dataset) * _flat(f_anchor)
+        rows = [{"task": 0, "per_task_pct": _frac_important(imp_cum) * 100,
+                 "cumulative_pct": _frac_important(imp_cum) * 100}]
         learner = build_learner("blr", model, anchor_train, device, **{**BLR_SIG_BASE, "beta": BETA})
 
         for k, (tr, _te) in enumerate(stream, start=1):
@@ -103,14 +101,12 @@ def main() -> None:
             n_t = len(tr.dataset)
             imp_cum = imp_cum + n_t * ft
             rows.append({"task": k, "per_task_pct": _frac_important(n_t * ft) * 100,
-                         "cumulative_pct": _frac_important(imp_cum) * 100,
-                         "corr_with_anchor": _corr(ft, fa)})
+                         "cumulative_pct": _frac_important(imp_cum) * 100})
 
     log.info("β=%.0f n=%d seed=%d  (importance density over the stream)", BETA, args.n, args.seed)
-    log.info("%5s %13s %14s %14s", "task", "per_task_%", "cumulative_%", "corr_anchor")
+    log.info("%5s %13s %14s", "task", "per_task_%", "cumulative_%")
     for r in rows:
-        log.info("%5d %13.2f %14.2f %14.3f",
-                 r["task"], r["per_task_pct"], r["cumulative_pct"], r["corr_with_anchor"])
+        log.info("%5d %13.2f %14.2f", r["task"], r["per_task_pct"], r["cumulative_pct"])
 
     out = {"beta": BETA, "n": args.n, "seed": args.seed, "N": args.N, "prior": PRIOR, "rows": rows}
     OUT.write_text(json.dumps(out, indent=2))
@@ -123,23 +119,16 @@ def main() -> None:
 def _plot(o):
     rows = o["rows"]
     tasks = [r["task"] for r in rows]
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5))
+    fig, ax1 = plt.subplots(figsize=(7.5, 5.2))
     ax1.plot(tasks, [r["per_task_pct"] for r in rows], "-o", color="#7f7f7f", lw=2.0, ms=4,
              label="per-task (this task alone)")
     ax1.plot(tasks, [r["cumulative_pct"] for r in rows], "-o", color="#d62728", lw=2.6, ms=5,
              label="cumulative (all tasks so far)")
     ax1.set(xlabel="tasks seen", ylabel="% weights important (σ < 0.9·prior)",
-            title="(a) Importance densifies → nearly all weights protected (σ→uniform)")
+            title=f"Importance fills capacity across a Permuted-MNIST stream "
+                  f"(n={o['n']}, seed {o['seed']})")
     ax1.legend()
     ax1.grid(alpha=0.3)
-    ax2.plot(tasks[1:], [r["corr_with_anchor"] for r in rows[1:]], "-o", color="#1f77b4",
-             lw=2.2, ms=4)
-    ax2.set(xlabel="stream task", ylabel="corr(F_task, F_anchor)",
-            title="(b) Each task's important set barely overlaps the anchor's")
-    ax2.grid(alpha=0.3)
-    fig.suptitle(f"Different permuted tasks occupy DIFFERENT sparse sets; their union fills the "
-                 f"net → at capacity importance is ~uniform, curvature→flat (n={o['n']}, "
-                 f"seed {o['seed']})", fontsize=11)
     fig.tight_layout()
     out_png = OUT.parent / "fisher_density.png"
     fig.savefig(out_png, dpi=120)
