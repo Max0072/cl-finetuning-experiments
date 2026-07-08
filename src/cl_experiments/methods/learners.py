@@ -169,22 +169,31 @@ class BLROnlineLearner:
 
     def __init__(self, opt: BLR, fisher: dict, n_data: int, *, sigma_prior: float = 0.05,
                  gamma: float = 1.0, fisher_mode: str = "true", fisher_batches: int = 30,
-                 fisher_seed: int = 0, epochs: int = 1,
+                 fisher_seed: int = 0, epochs: int = 1, curvature: bool = True,
                  buf_x=None, buf_y=None, replay_bs: int = 128) -> None:
         self.opt, self.fisher_run, self.n_data = opt, fisher, n_data
         self.sigma_prior, self.gamma = sigma_prior, gamma
         self.fisher_mode, self.fisher_batches = fisher_mode, fisher_batches
         self.fisher_seed, self.epochs = fisher_seed, epochs
+        # curvature=False -> the ablation "blr_const_online": keep the online MEAN-tracking
+        # (prior moves to current weights each task) but NEVER use the Fisher -- sigma stays
+        # flat and the floor stays the flat prior. Isolates whether the online frontier lift
+        # comes from the curvature re-consolidation or merely from the per-task mean-tracking.
+        self.curvature = curvature
         self.buf_x, self.buf_y, self.replay_bs = buf_x, buf_y, replay_bs
 
     def _set_floor(self, device) -> None:
-        """precision_floor = accumulated precision (N_data*running_Fisher + prior). The
-        within-task sigma-EMA then relaxes toward this floor plus the current task's
-        curvature -- i.e. the RIGHT Laplace target, so sigma tracks it instead of
-        drifting above (see the sigma-convergence diagnostic)."""
+        """precision_floor for the within-task sigma-EMA target. With curvature: accumulated
+        precision (N_data*running_Fisher + prior) -- the RIGHT Laplace target, so sigma tracks
+        it instead of drifting above (see the sigma-convergence diagnostic). Without curvature:
+        the flat prior (the const ablation)."""
         s_prior = 1.0 / self.sigma_prior**2
-        self.opt.precision_floor = {n: (self.n_data * f + s_prior).to(device)
-                                    for n, f in self.fisher_run.items()}
+        if self.curvature:
+            self.opt.precision_floor = {n: (self.n_data * f + s_prior).to(device)
+                                        for n, f in self.fisher_run.items()}
+        else:
+            self.opt.precision_floor = {n: torch.full_like(s, s_prior).to(device)
+                                        for n, s in self.opt.sigma.items()}
 
     def finetune(self, model: nn.Module, loader: DataLoader, device) -> None:
         model.train()
@@ -209,18 +218,24 @@ class BLROnlineLearner:
                     crit(model(x), y).backward()
                     self.opt.accumulate()
                 self.opt.step()
-        # Re-consolidate the admissible zone on the just-learned task.
-        gen = (torch.Generator().manual_seed(self.fisher_seed)
-               if self.fisher_mode == "true" else None)
-        f_task = diagonal_fisher(model, loader, mode=self.fisher_mode,
-                                 max_batches=self.fisher_batches, device=device, generator=gen)
-        self.fisher_run = {n: self.gamma * self.fisher_run[n] + f_task[n]
-                           for n in self.fisher_run}
-        sigma_new = laplace_sigma(self.fisher_run, n_data=self.n_data, sigma_prior=self.sigma_prior)
+        # Re-consolidate the admissible zone on the just-learned task. The mean always
+        # tracks (prior -> current weights); with curvature we also recompute the Fisher,
+        # accumulate it, and re-derive the Laplace sigma. Without curvature (the const
+        # ablation) sigma stays flat and the flat floor is kept -- only the mean tracks.
+        if self.curvature:
+            gen = (torch.Generator().manual_seed(self.fisher_seed)
+                   if self.fisher_mode == "true" else None)
+            f_task = diagonal_fisher(model, loader, mode=self.fisher_mode,
+                                     max_batches=self.fisher_batches, device=device, generator=gen)
+            self.fisher_run = {n: self.gamma * self.fisher_run[n] + f_task[n]
+                               for n in self.fisher_run}
+            sigma_new = laplace_sigma(self.fisher_run, n_data=self.n_data,
+                                      sigma_prior=self.sigma_prior)
+            for n in self.opt.sigma:
+                self.opt.sigma[n] = sigma_new[n].to(device)
+            self._set_floor(device)  # raise the floor with the newly accumulated importance
         for n in self.opt.sigma:
-            self.opt.sigma[n] = sigma_new[n].to(device)
             self.opt.mu_prior[n] = self.opt.mu[n].detach().clone()  # prior tracks latest
-        self._set_floor(device)  # raise the floor with the newly accumulated importance
 
 
 class BLRReplayLearner:
@@ -323,14 +338,20 @@ def build_learner(
                   n_samples=n_samples, n_mc=n_mc, mu_prior="init",
                   lr=beta, noise_scale=noise_scale, rho=rho)
         return BLRLearner(opt, epochs=epochs)
-    if method in ("blr_online", "blr_online_replay"):
+    if method in ("blr_online", "blr_online_replay", "blr_const_online"):
         # BLR with online per-task re-consolidation (~ online-EWC). blr_online_replay
         # additionally augments each batch with a rehearsal minibatch (hybrid, not data-free).
-        gen = torch.Generator().manual_seed(fisher_seed)
-        fisher = diagonal_fisher(model, anchor_train, mode=fisher_mode,
-                                 max_batches=fisher_batches, device=device, generator=gen)
+        # blr_const_online is the ablation: online mean-tracking but flat sigma (no curvature).
+        curvature = method != "blr_const_online"
         n_data = len(anchor_train.dataset)
-        sigma_init = laplace_sigma(fisher, n_data=n_data, sigma_prior=sigma_prior)
+        if curvature:
+            gen = torch.Generator().manual_seed(fisher_seed)
+            fisher = diagonal_fisher(model, anchor_train, mode=fisher_mode,
+                                     max_batches=fisher_batches, device=device, generator=gen)
+            sigma_init = laplace_sigma(fisher, n_data=n_data, sigma_prior=sigma_prior)
+        else:
+            fisher = {}          # never used -- the const ablation ignores curvature
+            sigma_init = sigma_const
         # sigma consolidates continuously (rho-EMA) toward the accumulated-precision floor,
         # so within a task it already approaches the next per-task re-consolidation target.
         opt = BLR(model, sigma_init=sigma_init, sigma_prior=sigma_prior, n_samples=n_samples,
@@ -341,7 +362,7 @@ def build_learner(
             bx, by = _sample_buffer(anchor_train, buffer_size)
         return BLROnlineLearner(opt, fisher, n_data, sigma_prior=sigma_prior, gamma=ewc_gamma,
                                 fisher_mode=fisher_mode, fisher_batches=fisher_batches,
-                                fisher_seed=fisher_seed, epochs=epochs,
+                                fisher_seed=fisher_seed, epochs=epochs, curvature=curvature,
                                 buf_x=bx, buf_y=by, replay_bs=replay_bs)
     if method == "blr_replay":  # hybrid: BLR update on replay-augmented batches
         if sigma_mode == "laplace":

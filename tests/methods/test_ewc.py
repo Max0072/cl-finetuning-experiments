@@ -62,3 +62,26 @@ def test_blr_online_reconsolidates_each_task(separable_loader, toy_model):
     prior_moved = any(not torch.equal(prior_before[n], learner.opt.mu_prior[n]) for n in prior_before)
     assert sigma_changed, "BLR-online did not refresh sigma at the task boundary"
     assert prior_moved, "BLR-online did not move the prior mean to the current weights"
+
+
+def test_blr_const_online_tracks_mean_without_curvature(separable_loader, toy_model):
+    """blr_const_online is the ablation: it keeps the online MEAN-tracking (prior moves to
+    the current weights each task) but never uses the Fisher -- so its precision floor stays
+    the UNIFORM prior, with no curvature structure. This isolates whether the online lift
+    comes from curvature or merely from mean-tracking."""
+    torch.manual_seed(0)
+    model = toy_model()
+    learner = build_learner("blr_const_online", model, separable_loader(seed=0), "cpu",
+                            sigma_mode="const", sigma_const=0.05, sigma_prior=0.05, beta=8.0)
+    assert isinstance(learner, BLROnlineLearner)
+    assert learner.curvature is False
+    prior_before = {n: p.clone() for n, p in learner.opt.mu_prior.items()}
+
+    learner.finetune(model, separable_loader(seed=1), "cpu")
+
+    prior_moved = any(not torch.equal(prior_before[n], learner.opt.mu_prior[n]) for n in prior_before)
+    assert prior_moved, "blr_const_online did not track the mean"
+    # the precision floor is the FLAT prior everywhere -- no curvature leaked in
+    s_prior = 1.0 / learner.sigma_prior**2
+    for f in learner.opt.precision_floor.values():
+        assert torch.allclose(f, torch.full_like(f, s_prior)), "floor is not flat (curvature leaked)"
