@@ -14,7 +14,7 @@ are regenerated on demand (both dirs are gitignored).
 uv sync --extra dev
 
 # 2. smoke-check the install (fast, CPU-only, no downloads beyond MNIST)
-uv run pytest -q                                     # 25 tests, ~2s
+uv run pytest -q                                     # 26 tests, ~2s
 uv run python -m experiments.setup.train_anchor --n 1   # trains+caches one anchor
 
 # 3. run any experiment (each is standalone, resumable, and writes to results/)
@@ -53,11 +53,12 @@ in [`docs/SETTING.md`](docs/SETTING.md). In brief: continual **fine-tuning** of 
 MLP on Permuted-MNIST — train an anchor (jointly on the first `n` tasks), then
 fine-tune on a 10-task stream, **retention-first** and **data-free**.
 
-**Method**: curvature-initialised **Bayesian Learning Rule** (`cl_experiments.methods.blr`)
-— the mean update is the natural gradient `Δμ ∝ σ²·∇`, σ tracks the inverse
-curvature, and the posterior is initialised from the diagonal Fisher (Laplace). The
-`blr_const` (constant-σ) variant is the ablation isolating the value of curvature
-init. With data available, `BLR+replay` strictly improves plain replay.
+**Method**: a **Bayesian Learning Rule** (`cl_experiments.methods.blr`) with curvature-derived
+σ — the mean update is the natural gradient `Δμ ∝ σ²·∇`, and σ tracks the inverse curvature
+(diagonal Fisher / Laplace). A 2×2 ablation ({curvature-σ, flat-σ} × {static init, online
+re-consolidation}) locates the value of curvature in the **online per-task re-consolidation**,
+not in a one-shot init — see [`docs/FINDINGS.md`](docs/FINDINGS.md) for the full claims ledger.
+With data available, `BLR+replay` strictly improves plain replay.
 
 ## Reproducibility
 
@@ -80,9 +81,9 @@ Grouped by role (see `experiments/README.md` for the one-line map):
 | folder | what it is |
 |---|---|
 | `setup/` | prepare: train + certify the anchor, tune each method's hyper-parameters |
-| `benchmark/` | **the results** — headline method comparisons (grid, frontier, hybrid, stream length) |
+| `benchmark/` | **the results** — headline comparisons (grid, frontier, hybrid, stream length, memory window) |
 | `figures/` | render the paper figures from the benchmark outputs |
-| `justification/` | **why the choices are sound** — Fisher validation + all ablations/sensitivity |
+| `justification/` | **why the choices are sound** — Fisher validation, ablations, and where curvature helps |
 
 Run in order to reproduce `results/`:
 
@@ -100,15 +101,13 @@ uv run python -m experiments.benchmark.final_grid --device cpu                  
 uv run python -m experiments.benchmark.frontier --n 3 --device cpu               # retention/plasticity frontier
 uv run python -m experiments.benchmark.hybrid_seeds --seeds 0 1 2 --device cpu    # BLR+replay vs replay (β sweep)
 uv run python -m experiments.benchmark.stream_length --N 10 20 30 --seeds 0 --device cpu  # scaling; BLR shown as β sweep
+uv run python -m experiments.benchmark.memory_window --device cpu     # retention vs recency (regime spectrum)
 
 # figures
 uv run python -m experiments.figures.plot_grid
-
-# justification (the choices are not cherry-picked)
-uv run python -m experiments.justification.validate_fisher --n 3      # MC vs exact Fisher agreement
-uv run python -m experiments.justification.anchor_convergence         # why moderate (not deep) convergence
-uv run python -m experiments.justification.sensitivity                # sigma_prior / rho sweeps
-uv run python -m experiments.justification.design_ablations           # n_mc / kappa / freeze_sigma
 ```
-The step-size `β` choice is justified by the whole `benchmark/frontier.py` sweep (not
-a single cherry-picked point), and the design knobs by `justification/design_ablations.py`.
+
+For the **justification** suite (why the choices are sound and where the curvature actually
+helps) and the full claim ↔ experiment ↔ verdict ledger, see [`docs/FINDINGS.md`](docs/FINDINGS.md).
+The step-size `β` choice is justified by the whole `benchmark/frontier.py` sweep (not a single
+cherry-picked point), and the design knobs by `justification/design_ablations.py`.
