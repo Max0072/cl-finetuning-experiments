@@ -24,22 +24,31 @@ ones stay plastic.
 family), implemented in `cl_experiments.methods.blr`. The mean step is the natural gradient
 — scaled by the posterior variance `Δμ ∝ σ²·∇` — and the variance tracks the inverse
 curvature (precision EMA toward the Laplace target). The mean step-size `β` is the
-plasticity dial. Our specific contribution is the **curvature-informed initialisation**
-of the posterior (Laplace/Fisher σ), which is orthogonal to and plugs into the BLR
-update. It follows directly from the **admissible-zones** view: each weight's posterior
-width σ is the half-width of the zone within which the anchor's loss stays low, so
-importance-scaled updates are the natural consequence, not an add-on. (Uncertainty-
-scaled plasticity is a long-standing idea in Bayesian continual learning; BLR is
-simply its canonical variational-inference form.)
+plasticity dial. The mechanism is curvature-informed σ from the **admissible-zones** view:
+each weight's posterior width σ is the half-width of the zone within which the anchor's loss
+stays low, so importance-scaled updates are the natural consequence, not an add-on.
+(Uncertainty-scaled plasticity is a long-standing idea in Bayesian continual learning; BLR
+is simply its canonical variational-inference form.)
+
+**Where the value of curvature actually lies (measured — see `docs/FINDINGS.md` §4).** A 2×2
+ablation ({curvature-σ, flat-σ} × {static init, online re-consolidation}) shows the
+contribution is **online per-task re-consolidation**, not a one-shot curvature *init*: on
+this testbed a static Laplace-σ init coincides with a flat init, because the small net's
+importance saturates within a task or two — nearly all weights become important, so the
+curvature is ~uniform and the anchor is instead held by the prior-mean. Re-measuring the
+Fisher each task (online-BLR) protects the *growing* occupied set and is what raises the
+frontier. That fast saturation is itself a small-capacity artifact (`FINDINGS.md` §5): a
+wider model needs far more data to compress its σ, so curvature stays informative over a
+much longer data horizon — the motivation for the (out-of-scope here) large-model regime.
 
 **Framing (important):** the point is *fine-tuning*, not standard sequential-CL
 benchmarking. So:
 - **Primary metric is retention-first** — keep the anchor (the model's knowledge)
   while adapting; not equal-weight average accuracy over many tasks.
 - **Competitors are fine-tuning-retention methods** (naive, EWC, online-EWC,
-  replay), **not** sequential-CL SoTA (VCL/DER++/A-GEM). Replay is the
+  replay), **not** sequential continual-learning benchmarks. Replay is the
   data-storing *foil* (its edge over data-free methods quantifies the price of
-  being data-free); the real SoTA arena is LLM scale.
+  being data-free).
 - Methods are compared as **retention↔plasticity frontiers** (each has a knob:
   BLR step β, EWC λ), not single points.
 
@@ -73,9 +82,6 @@ Rationale:
 - **Known capacity behaviour** — with 256-256 we already observe capacity
   saturation around ~20 tasks, which is itself an informative regime.
 
-Second tier (robustness, planned): a small CNN on a harder benchmark, to show
-the effect is not MLP-specific.
-
 ### Anchor training (step 1)
 
 The "trained model" we start from is the **anchor**: a model that holds the
@@ -102,7 +108,7 @@ knowledge we want to preserve. It can be trained on the first `n` tasks
 default 0.03), Adam constant lr, no deep annealing. Anchor learns all tasks
 (acc ~0.97) but stays un-saturated, so the Fisher is informative (n=3: ~7 epochs,
 grad~0.07, sigma spread [0.01, 0.05], MC-vs-exact Fisher corr 0.92). This also
-matches the realistic LLM regime (Adam, limited budget, never over-fit).
+matches a realistic fine-tuning regime (Adam, limited budget, never over-fit).
 
 Self-consistency note: sigma is estimated *at whichever minimum we land in*, so
 the choice of optimiser is not critical — different optimisers reach minima of
@@ -182,7 +188,7 @@ Rationale:
 
 Known limitation (accepted): a pixel permutation is a full-rank, semantically
 unnatural input scramble. We accept this as the price of using the standard
-benchmark, and plan Rotated-MNIST and a CIFAR split as robustness checks.
+benchmark, and plan Rotated-MNIST as a robustness check.
 
 ### Two configurations of the same scenario
 - **2-task (A → B):** pretrain on task 0, fine-tune on one permuted task.
@@ -268,7 +274,7 @@ Resolved:
 - [x] **Model = MLP 784-256-256-10**.
 - [x] **Benchmark = Permuted-MNIST**, domain-incremental, single head.
 - [x] **Framing = data-free continual fine-tuning, retention-first**; competitors
-      are fine-tuning-retention methods, not sequential-CL SoTA (§1).
+      are fine-tuning-retention methods (§1).
 - [x] Anchor = **Adam** (lr 1e-3, batch 128, wd 0), joint multi-task over `0..n-1`,
       trained to **MODERATE convergence** (`stop_loss = 0.03`, NOT a deep minimum —
       that collapses the Fisher). Certification is **accuracy-based** (≥0.95);
@@ -283,5 +289,5 @@ Resolved:
       (grid, frontier, hybrid) run under BLR.
 
 Still open:
-- [ ] Second-tier scaling target (small CNN + which dataset).
-- [ ] **LLM scale** (self-sampled true Fisher) — the real SoTA arena and the whole point.
+- [ ] Multi-seed the frontier (seed 0 only today) and larger-N / larger-`n` sweeps.
+- [ ] Rotated-MNIST as an additional input shift (same MLP), as a robustness check.

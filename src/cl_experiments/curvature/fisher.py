@@ -10,7 +10,7 @@ Three modes (all return the mean per-sample diagonal Fisher):
                    minimum -- an ablation.
   * ``true``:      MC estimate -- sample one label per example from the model's
                    predictive distribution. O(1) in the number of classes, so it
-                   is the scalable choice for large output spaces (LLM vocab).
+                   is the scalable choice for large output spaces.
                    Seeded via ``generator`` for reproducibility.
   * ``expected``:  deterministic true Fisher -- take the expectation over labels
                    exactly, ``sum_c p(c|x) (d log p(c|x)/dtheta)^2``. Exact, no
